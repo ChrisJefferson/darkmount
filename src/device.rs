@@ -3,11 +3,19 @@
 use hidapi::{HidApi, HidError};
 use serde::Serialize;
 
+use crate::qlink::{Command, QLink};
+use crate::support::FirmwareVersion;
+use crate::transport::HidTransport;
+use crate::{Error, Result};
+
 pub const VENDOR_ID: u16 = 0x373f;
 pub const PRODUCT_ID: u16 = 0x0001;
 pub const CONTROL_INTERFACE: i32 = 2;
 pub const CONTROL_USAGE_PAGE: u16 = 0xff00;
 pub const CONTROL_USAGE: u16 = 1;
+
+const READ_INFO: Command = Command::new(0x03, 0x01);
+const READ_SERIAL: Command = Command::new(0x03, 0x02);
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct HidCollection {
@@ -22,7 +30,39 @@ pub struct HidCollection {
     pub is_control_interface: bool,
 }
 
-pub fn enumerate() -> Result<Vec<HidCollection>, HidError> {
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct DeviceInfo {
+    pub model: u16,
+    pub hardware_revision: u8,
+    pub firmware_versions: Vec<FirmwareVersion>,
+    pub serial_number: String,
+}
+
+impl DeviceInfo {
+    pub fn require_control_support(&self) -> Result<()> {
+        if self.model == 1
+            && self.hardware_revision == 1
+            && !self.firmware_versions.is_empty()
+            && self
+                .firmware_versions
+                .iter()
+                .all(|version| version.control_is_supported())
+        {
+            return Ok(());
+        }
+        Err(Error::UnsupportedDevice {
+            model: self.model,
+            revision: self.hardware_revision,
+            versions: self
+                .firmware_versions
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        })
+    }
+}
+
+pub fn enumerate() -> std::result::Result<Vec<HidCollection>, HidError> {
     let api = HidApi::new()?;
     let collections = api
         .device_list()
@@ -49,6 +89,109 @@ pub fn enumerate() -> Result<Vec<HidCollection>, HidError> {
     Ok(collections)
 }
 
+pub struct Keyboard {
+    link: QLink<HidTransport>,
+    info: DeviceInfo,
+}
+
+impl Keyboard {
+    pub fn open() -> Result<Self> {
+        let mut link = QLink::open()?;
+        let info_payload = link.request(READ_INFO, &[])?;
+        let serial_payload = link.request(READ_SERIAL, &[])?;
+        let info = parse_device_info(&info_payload, &serial_payload)?;
+        Ok(Self { link, info })
+    }
+
+    pub fn info(&self) -> &DeviceInfo {
+        &self.info
+    }
+
+    pub(crate) fn require_control_support(&self) -> Result<()> {
+        self.info.require_control_support()
+    }
+
+    pub(crate) fn request(&mut self, command: Command, payload: &[u8]) -> Result<Vec<u8>> {
+        self.link.request(command, payload)
+    }
+
+    pub(crate) fn read_notification<F>(
+        &mut self,
+        command: Command,
+        timeout: std::time::Duration,
+        predicate: F,
+    ) -> Result<Option<crate::qlink::Frame>>
+    where
+        F: Fn(&crate::qlink::Frame) -> bool,
+    {
+        self.link.read_notification(command, timeout, predicate)
+    }
+
+    pub fn close(mut self) -> Result<()> {
+        self.link.close()
+    }
+}
+
+fn parse_device_info(info: &[u8], serial: &[u8]) -> Result<DeviceInfo> {
+    if info.len() < 4 {
+        return Err(Error::ShortDeviceInfo(info.len()));
+    }
+    let model = u16::from_le_bytes([info[0], info[1]]);
+    let hardware_revision = info[2];
+    let count = usize::from(info[3]);
+    let expected = 4 + count * 4;
+    if info.len() < expected {
+        return Err(Error::IncompleteDeviceInfo {
+            actual: info.len(),
+            expected,
+        });
+    }
+    let firmware_versions = (0..count)
+        .map(|index| {
+            let offset = 4 + index * 4;
+            FirmwareVersion {
+                major: decode_bcd(info[offset + 3]),
+                minor: decode_bcd(info[offset + 2]),
+                patch: decode_bcd(info[offset + 1]),
+            }
+        })
+        .collect();
+    if serial.is_empty() {
+        return Err(Error::EmptySerial);
+    }
+    let serial_length = usize::from(serial[0]);
+    if serial.len() < serial_length + 1 {
+        return Err(Error::IncompleteSerial {
+            actual: serial.len() - 1,
+            expected: serial_length,
+        });
+    }
+    let serial_bytes = &serial[1..=serial_length];
+    let serial_number = match std::str::from_utf8(serial_bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => serial_bytes
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect(),
+    };
+    Ok(DeviceInfo {
+        model,
+        hardware_revision,
+        firmware_versions,
+        serial_number,
+    })
+}
+
+fn decode_bcd(value: u8) -> u8 {
+    let high = value >> 4;
+    let low = value & 0x0f;
+    if high <= 9 && low <= 9 {
+        high * 10 + low
+    } else {
+        value
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,5 +203,24 @@ mod tests {
         assert_eq!(CONTROL_INTERFACE, 2);
         assert_eq!(CONTROL_USAGE_PAGE, 0xff00);
         assert_eq!(CONTROL_USAGE, 1);
+    }
+
+    #[test]
+    fn captured_device_information_is_parsed() {
+        let info = hex("01000103000029010000290100002901");
+        let serial = hex("0e3030324335333930303032313230");
+        let parsed = parse_device_info(&info, &serial).unwrap();
+        assert_eq!(parsed.model, 1);
+        assert_eq!(parsed.hardware_revision, 1);
+        assert_eq!(parsed.firmware_versions, vec!["1.29.0".parse().unwrap(); 3]);
+        assert_eq!(parsed.serial_number, "002C5390002120");
+        parsed.require_control_support().unwrap();
+    }
+
+    fn hex(text: &str) -> Vec<u8> {
+        text.as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
     }
 }
