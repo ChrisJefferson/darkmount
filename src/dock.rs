@@ -30,6 +30,7 @@ pub enum ClockFormat {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IdleDisplay {
+    Disabled,
     Clock,
     Image,
 }
@@ -54,6 +55,7 @@ impl DockSettings {
             value => return Err(Error::InvalidClockFormat(value)),
         };
         let idle_display = match payload[4] {
+            0 => IdleDisplay::Disabled,
             1 => IdleDisplay::Clock,
             2 => IdleDisplay::Image,
             value => return Err(Error::InvalidIdleDisplay(value)),
@@ -73,6 +75,7 @@ impl DockSettings {
             ClockFormat::TwentyFourHour => 1,
         };
         let idle_display = match self.idle_display {
+            IdleDisplay::Disabled => 0,
             IdleDisplay::Clock => 1,
             IdleDisplay::Image => 2,
         };
@@ -226,5 +229,12 @@ mod tests {
         assert_eq!(settings.idle_seconds, 30);
         assert_eq!(settings.off_seconds, 0);
         assert_eq!(settings.encode(), [0xdc, 0x4d, 0, 1, 2, 30, 0, 0, 0]);
+    }
+
+    #[test]
+    fn disabled_idle_display_matches_windows_capture() {
+        let settings = DockSettings::parse(&[0xdc, 0x4d, 0, 1, 0, 30, 0, 60, 0]).unwrap();
+        assert_eq!(settings.idle_display, IdleDisplay::Disabled);
+        assert_eq!(settings.encode(), [0xdc, 0x4d, 0, 1, 0, 30, 0, 60, 0]);
     }
 }

@@ -115,6 +115,10 @@ impl Keyboard {
         self.link.request(command, payload)
     }
 
+    pub(crate) fn read_continuation(&mut self, expected_index: u8) -> Result<Vec<u8>> {
+        self.link.read_continuation(expected_index)
+    }
+
     pub(crate) fn read_notification<F>(
         &mut self,
         command: Command,

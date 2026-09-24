@@ -20,6 +20,14 @@ pub enum Error {
     LampArrayInterfaceNotFound,
     #[error("multiple Dark Mount LampArray interfaces were found")]
     MultipleLampArrayInterfaces,
+    #[error("no Dark Mount keyboard input interfaces were found")]
+    InputInterfacesNotFound,
+    #[error("could not open Dark Mount input interface {interface_number} at {path}: {source}")]
+    InputInterfaceOpen {
+        interface_number: i32,
+        path: String,
+        source: hidapi::HidError,
+    },
     #[error("HID report write was incomplete: wrote {actual} of {expected} bytes")]
     IncompleteWrite { actual: usize, expected: usize },
     #[error("HID report had {0} bytes; expected 64")]
@@ -40,6 +48,14 @@ pub enum Error {
     DeviceStatus { group: u8, command: u8, status: u8 },
     #[error("too many unmatched QLink reports are pending")]
     PendingOverflow,
+    #[error("timed out waiting for QLink continuation fragment {0}")]
+    ContinuationTimeout(u8),
+    #[error("QLink continuation has invalid last-byte marker {0}")]
+    InvalidContinuationLength(u8),
+    #[error("QLink continuation fragment is {actual}; expected {expected}")]
+    WrongContinuationIndex { actual: u8, expected: u8 },
+    #[error("QLink continuation session is {actual}; expected {expected}")]
+    WrongContinuationSession { actual: u8, expected: u8 },
     #[error("session response has {0} payload bytes; expected at least 7")]
     ShortSessionResponse(usize),
     #[error("session response did not echo the nonce")]
@@ -58,6 +74,36 @@ pub enum Error {
     IncompleteSerial { actual: usize, expected: usize },
     #[error("display key must be between 1 and 8; received {0}")]
     InvalidDisplayKey(u8),
+    #[error("assignment response has {0} bytes; expected at least 2")]
+    ShortAssignmentResponse(usize),
+    #[error("assignment response ended part-way through an entry after {0} bytes")]
+    IncompleteAssignmentResponse(usize),
+    #[error("assignment {index} has unknown action type {action_type:#04x}")]
+    UnknownAssignmentActionType { index: usize, action_type: u8 },
+    #[error("assignment {index} action type {action_type:#04x} contains invalid UTF-8")]
+    InvalidAssignmentText { index: usize, action_type: u8 },
+    #[error("assignment text has {0} bytes; expected between 1 and 51")]
+    InvalidAssignmentTextLength(usize),
+    #[error("writing this assignment action has not been verified")]
+    UnsupportedAssignmentWrite,
+    #[error("display-key standard assignment has unsupported trailing parameter {0:#04x}")]
+    UnsupportedStandardKeyParameter(u8),
+    #[error("invalid assignment target {0:?}; use display-1..display-8 or a decimal/hex key ID")]
+    InvalidAssignmentTarget(String),
+    #[error("assignment action is only verified for display keys, not key ID {0:#06x}")]
+    AssignmentRequiresDisplayKey(u16),
+    #[error("invalid USB HID keycode {0:?}; use a decimal byte or 0x00..0xff")]
+    InvalidKeyCode(String),
+    #[error("the captured default assignment for key ID {0:#06x} is not known")]
+    UnknownDefaultAssignment(u16),
+    #[error("failed while assigning display key {display_key} to F{function_key}: {source}")]
+    DisplayFunctionKeyPreset {
+        display_key: u8,
+        function_key: u8,
+        source: Box<Error>,
+    },
+    #[error("assignment response has {actual} bytes; expected {expected}")]
+    InvalidAssignmentResponseLength { actual: usize, expected: usize },
     #[error("display-key image header has {0} bytes; expected 9")]
     ShortImageHeader(usize),
     #[error("display-key image has invalid stored length {0}")]
@@ -127,10 +173,20 @@ pub enum Error {
     InvalidColour,
     #[error("brightness and speed must be between 0 and 100")]
     InvalidEffectLevel,
-    #[error("effect direction must be between 0 and 7")]
+    #[error("onboard-effect brightness must be between 10 and 100")]
+    InvalidEffectBrightness,
+    #[error("onboard-effect speed must be 0 for Static, or between 10 and 100 otherwise")]
+    InvalidEffectSpeed,
+    #[error("that colour mode has not been verified for the selected onboard effect")]
+    UnsupportedEffectColours,
+    #[error("the selected direction is not valid for this onboard effect")]
     InvalidEffectDirection,
-    #[error("an onboard effect requires between 1 and 8 colours")]
-    InvalidEffectColourCount,
+    #[error("a gradient requires 3 to 8 stops with strictly increasing positions from 0 to 100")]
+    InvalidEffectGradient,
+    #[error("lighting mode response is invalid: {0:02x?}")]
+    InvalidLightingModeResponse(Vec<u8>),
+    #[error("game-mode response is invalid: {0:02x?}")]
+    InvalidGameModeResponse(Vec<u8>),
     #[error("display-key event payload has {0} bytes; expected at least 5")]
     ShortKeyEvent(usize),
     #[error("display-key event contains unknown key ID {0:#04x}")]

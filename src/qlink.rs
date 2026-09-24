@@ -77,6 +77,17 @@ pub(crate) fn parse_frame(report: &[u8; REPORT_SIZE]) -> Result<Frame> {
     if !(6..CRC_OFFSET as u8).contains(&report[0]) {
         return Err(Error::InvalidFrameLength(report[0]));
     }
+    validate_crc(report)?;
+    let payload_end = usize::from(report[0]) + 1;
+    Ok(Frame {
+        status: report[3],
+        sequence: report[4],
+        command: Command::new(report[5], report[6]),
+        payload: report[DATA_OFFSET..payload_end].to_vec(),
+    })
+}
+
+fn validate_crc(report: &[u8; REPORT_SIZE]) -> Result<()> {
     let received = u16::from_le_bytes([report[CRC_OFFSET], report[CRC_OFFSET + 1]]);
     let calculated = crc16_modbus(&report[..CRC_OFFSET]);
     if received != calculated {
@@ -85,13 +96,32 @@ pub(crate) fn parse_frame(report: &[u8; REPORT_SIZE]) -> Result<Frame> {
             calculated,
         });
     }
-    let payload_end = usize::from(report[0]) + 1;
-    Ok(Frame {
-        status: report[3],
-        sequence: report[4],
-        command: Command::new(report[5], report[6]),
-        payload: report[DATA_OFFSET..payload_end].to_vec(),
-    })
+    Ok(())
+}
+
+fn parse_continuation(
+    report: &[u8; REPORT_SIZE],
+    expected_index: u8,
+    expected_session: u8,
+) -> Result<Vec<u8>> {
+    if !(3..CRC_OFFSET as u8).contains(&report[0]) {
+        return Err(Error::InvalidContinuationLength(report[0]));
+    }
+    validate_crc(report)?;
+    let actual_index = report[1] & 0x7f;
+    if actual_index != expected_index {
+        return Err(Error::WrongContinuationIndex {
+            actual: actual_index,
+            expected: expected_index,
+        });
+    }
+    if report[2] != expected_session {
+        return Err(Error::WrongContinuationSession {
+            actual: report[2],
+            expected: expected_session,
+        });
+    }
+    Ok(report[3..=usize::from(report[0])].to_vec())
 }
 
 pub(crate) struct QLink<T: Transport> {
@@ -157,6 +187,27 @@ impl<T: Transport> QLink<T> {
 
     pub(crate) fn request(&mut self, command: Command, payload: &[u8]) -> Result<Vec<u8>> {
         self.exchange(command, payload, None)
+    }
+
+    pub(crate) fn read_continuation(&mut self, expected_index: u8) -> Result<Vec<u8>> {
+        let deadline = Instant::now() + self.timeout;
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(Error::ContinuationTimeout(expected_index));
+            }
+            let Some(report) = self.transport.read_report(deadline - now)? else {
+                return Err(Error::ContinuationTimeout(expected_index));
+            };
+            if report[1] != 0 {
+                return parse_continuation(&report, expected_index, self.session);
+            }
+            let frame = parse_frame(&report)?;
+            if self.pending.len() == MAX_PENDING {
+                return Err(Error::PendingOverflow);
+            }
+            self.pending.push_back(frame);
+        }
     }
 
     pub(crate) fn read_notification<F>(
@@ -268,5 +319,35 @@ mod tests {
         assert_eq!(parsed.sequence, 49);
         assert_eq!(parsed.command, command);
         assert_eq!(parsed.payload, [0x6d, 0, 1, 2, 3, 4, 9]);
+    }
+
+    #[test]
+    fn continuation_uses_observed_three_byte_header() {
+        let mut report = [0_u8; REPORT_SIZE];
+        report[0] = 0x25;
+        report[1] = 1;
+        report[2] = 7;
+        let payload = [0, 2, 5, 0x6f, 0, 7, 1];
+        report[3..3 + payload.len()].copy_from_slice(&payload);
+        let crc = crc16_modbus(&report[..CRC_OFFSET]).to_le_bytes();
+        report[CRC_OFFSET..].copy_from_slice(&crc);
+        let parsed = parse_continuation(&report, 1, 7).unwrap();
+        assert_eq!(&parsed[..payload.len()], payload);
+        assert_eq!(parsed.len(), 35);
+    }
+
+    #[test]
+    fn non_final_continuation_carries_more_fragments_bit() {
+        let mut report = [0_u8; REPORT_SIZE];
+        report[0] = 5;
+        report[1] = 0x81;
+        report[2] = 7;
+        report[3..=5].copy_from_slice(&[0xaa, 0xbb, 0xcc]);
+        let crc = crc16_modbus(&report[..CRC_OFFSET]).to_le_bytes();
+        report[CRC_OFFSET..].copy_from_slice(&crc);
+        assert_eq!(
+            parse_continuation(&report, 1, 7).unwrap(),
+            [0xaa, 0xbb, 0xcc]
+        );
     }
 }
