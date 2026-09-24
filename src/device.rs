@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use std::fmt::Write;
+
 use hidapi::{HidApi, HidError};
 use serde::Serialize;
 
@@ -173,10 +175,13 @@ fn parse_device_info(info: &[u8], serial: &[u8]) -> Result<DeviceInfo> {
     let serial_bytes = &serial[1..=serial_length];
     let serial_number = match std::str::from_utf8(serial_bytes) {
         Ok(text) => text.to_owned(),
-        Err(_) => serial_bytes
-            .iter()
-            .map(|byte| format!("{byte:02X}"))
-            .collect(),
+        Err(_) => {
+            let mut encoded = String::with_capacity(serial_bytes.len() * 2);
+            for byte in serial_bytes {
+                write!(&mut encoded, "{byte:02X}").expect("writing to a String cannot fail");
+            }
+            encoded
+        }
     };
     Ok(DeviceInfo {
         model,
