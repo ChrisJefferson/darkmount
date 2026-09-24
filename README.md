@@ -200,9 +200,12 @@ The source-only release procedure is in
 
 ## Provenance and licence
 
-Protocol facts were documented by `re133/iocenter-linux`, inspected at commit
-`6e7a10a27fe5d2e552dec9d7c6adb0ba17191da9`, and independently checked against
-a real keyboard with a small native IOHIDManager probe. No source code was
+We used the protocol documentation from `re133/iocenter-linux`, inspected at
+commit `6e7a10a27fe5d2e552dec9d7c6adb0ba17191da9`, as guidance. We also exercised
+the official Windows application and captured its USB traffic independently.
+Those captures let us verify the documented behaviour against a real keyboard
+and identify the requests used to write assignments, settings and images. A
+small native IOHIDManager probe checked the macOS transport. No source code was
 copied or translated. See `ATTRIBUTION.md`.
 
 MPL-2.0.
