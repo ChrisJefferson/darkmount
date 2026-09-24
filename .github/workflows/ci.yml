@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust 1.85.0
+        run: rustup toolchain install 1.85.0 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        run: cargo +1.85.0 fmt --check
+      - name: Test
+        run: cargo +1.85.0 test --locked
+      - name: Lint
+        run: cargo +1.85.0 clippy --locked --all-targets -- -D warnings
+      - name: Build documentation
+        run: cargo +1.85.0 doc --locked --no-deps
+      - name: Build release executable
+        run: cargo +1.85.0 build --locked --release

@@ -12,7 +12,9 @@ The direct dependencies are:
 - `hidapi`: MIT
 - `chrono`: MIT OR Apache-2.0
 - `fs2`: MIT/Apache-2.0
+- `getrandom`: MIT OR Apache-2.0
 - `image`: MIT OR Apache-2.0
+- `thiserror`: MIT OR Apache-2.0
 
 The `hidapi` crate builds the upstream HIDAPI C implementation on macOS and
 Linux. Upstream HIDAPI offers a choice of GPL-3.0, BSD-3-Clause, or its original

@@ -23,7 +23,7 @@ use darkmount::{Error, Result, WriteOutcome};
 use image::{DynamicImage, ImageFormat};
 
 #[derive(Parser)]
-#[command(name = "darkmount")]
+#[command(name = "darkmount", version)]
 #[command(about = "Control a be quiet! Dark Mount keyboard")]
 struct Arguments {
     #[arg(long, global = true)]

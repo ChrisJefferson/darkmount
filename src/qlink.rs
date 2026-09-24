@@ -299,11 +299,46 @@ impl<T: Transport> QLink<T> {
         self.session = 0;
         Ok(())
     }
+
+    fn close_without_waiting(&mut self) {
+        if self.session == 0 {
+            return;
+        }
+        let sequence = self.next_sequence();
+        let report = build_frame(self.session, sequence, CLOSE_SESSION, &[])
+            .expect("an empty close-session payload always fits");
+        self.session = 0;
+        let _ = self.transport.write_report(&report);
+    }
+}
+
+impl<T: Transport> Drop for QLink<T> {
+    fn drop(&mut self) {
+        self.close_without_waiting();
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use super::*;
+
+    struct RecordingTransport {
+        writes: Rc<RefCell<Vec<[u8; REPORT_SIZE]>>>,
+    }
+
+    impl Transport for RecordingTransport {
+        fn write_report(&mut self, report: &[u8; REPORT_SIZE]) -> Result<()> {
+            self.writes.borrow_mut().push(*report);
+            Ok(())
+        }
+
+        fn read_report(&mut self, _timeout: Duration) -> Result<Option<[u8; REPORT_SIZE]>> {
+            Ok(None)
+        }
+    }
 
     #[test]
     fn crc_matches_modbus_check_value() {
@@ -349,5 +384,25 @@ mod tests {
             parse_continuation(&report, 1, 7).unwrap(),
             [0xaa, 0xbb, 0xcc]
         );
+    }
+
+    #[test]
+    fn dropping_an_open_link_sends_close_without_waiting() {
+        let writes = Rc::new(RefCell::new(Vec::new()));
+        let link = QLink {
+            transport: RecordingTransport {
+                writes: Rc::clone(&writes),
+            },
+            timeout: DEFAULT_TIMEOUT,
+            sequence: 0x30,
+            session: 7,
+            pending: VecDeque::new(),
+        };
+        drop(link);
+        let writes = writes.borrow();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0][2], 7);
+        assert_eq!(writes[0][5], CLOSE_SESSION.group);
+        assert_eq!(writes[0][6], CLOSE_SESSION.command);
     }
 }

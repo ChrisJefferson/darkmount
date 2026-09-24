@@ -7,6 +7,10 @@ by people, scripts and programs written in other languages.
 This is an independent community project. It is not affiliated with or
 supported by be quiet!.
 
+The current release is experimental. Take a snapshot before replacing
+persistent images or assignments, and do not disconnect the keyboard during a
+write.
+
 ## Support contract
 
 - Device: Dark Mount, USB `373f:0001`, model 1, hardware revision 1.
@@ -21,6 +25,29 @@ supported by be quiet!.
 The exact-version rule is intentional. The official update from 1.4.0 to
 1.29.0 changed the display-key representation from 140×140 to 120×120.
 Version ordering is therefore not evidence of protocol compatibility.
+
+Only one Dark Mount may be connected while using the control commands. Close
+IO Center Web and any other keyboard-control program first; they cannot safely
+share a QLink session with `darkmount`.
+
+## Installation on macOS
+
+Building requires Rust 1.85 or later and the command-line developer tools:
+
+```text
+cargo build --release --locked
+target/release/darkmount --version
+target/release/darkmount info
+```
+
+No kernel extension or custom driver is installed. Ordinary control commands
+use the keyboard's vendor HID interface. Only `trace-input`, which observes raw
+keyboard input, requires the Terminal application to be enabled under System
+Settings → Privacy & Security → Input Monitoring.
+
+The command-line interface is the supported interface for the experimental
+release. The Rust library is usable directly, but its public API remains
+unstable before version 1.0.
 
 ## Commands
 
@@ -105,6 +132,11 @@ in the captures. Default restoration is currently exposed only for F12
 (`0x63`), whose resulting default action was captured and can therefore be
 checked exactly.
 
+Application and website assignments are Windows-oriented firmware macros. They
+open the Windows Run dialog and type their stored text; they are not portable
+USB requests to launch an application or URL. On macOS use the F13–F20 preset,
+Shortcuts, or a program consuming the vendor display-key events instead.
+
 ### F13–F20 display-key preset
 
 `darkmount assignments preset f13-f20` assigns display keys 1–8 to the
@@ -145,6 +177,12 @@ keys and installing an autostart service belong in separate programs.
 The initial transport uses the `hidapi` crate. On macOS this uses
 IOHIDManager with shared device access. On Linux it builds the hidraw backend
 into the executable.
+
+## Release testing
+
+The unit tests and CI do not replace testing against a real keyboard. The
+bounded macOS procedure is in [`docs/macos-hardware-test.md`](docs/macos-hardware-test.md),
+including a read-only smoke script and explicit reconnect checks.
 
 ## Provenance and licence
 

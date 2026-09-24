@@ -52,6 +52,7 @@ pub struct LampArray {
 #[must_use = "LampArray host control must be explicitly released"]
 pub struct LampArrayControl<'a> {
     array: &'a LampArray,
+    active: bool,
 }
 
 impl LampArray {
@@ -128,7 +129,10 @@ impl LampArray {
 
     pub fn take_control(&self) -> Result<LampArrayControl<'_>> {
         set_feature(&self.device, REPORT_CONTROL, &[0], CONTROL_SIZE)?;
-        Ok(LampArrayControl { array: self })
+        Ok(LampArrayControl {
+            array: self,
+            active: true,
+        })
     }
 
     pub fn release(&self) -> Result<()> {
@@ -190,8 +194,18 @@ impl LampArrayControl<'_> {
         Ok(())
     }
 
-    pub fn release(self) -> Result<()> {
-        self.array.release()
+    pub fn release(mut self) -> Result<()> {
+        self.array.release()?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for LampArrayControl<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.array.release();
+        }
     }
 }
 
