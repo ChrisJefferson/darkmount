@@ -5,7 +5,10 @@ edition = "2024"
 rust-version = "1.85"
 description = "Headless control library and command-line tool for the be quiet! Dark Mount keyboard"
 license = "MPL-2.0"
-publish = false
+readme = "README.md"
+repository = "https://github.com/ChrisJefferson/darkmount"
+keywords = ["keyboard", "hid", "macos", "hardware"]
+categories = ["command-line-utilities", "hardware-support"]
 
 [[bin]]
 name = "darkmount"

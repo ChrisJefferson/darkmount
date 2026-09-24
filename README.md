@@ -18,6 +18,8 @@ write.
 - Unknown firmware: enumeration and identification only; persistent writes are
   refused until that version is tested and explicitly supported.
 - macOS on Apple Silicon: active development and hardware-tested.
+- macOS on Intel: builds and passes automated tests, but is not yet tested on
+  hardware.
 - Linux: intended through HIDAPI's statically compiled hidraw backend, but not
   yet tested on hardware. A narrowly scoped udev rule will still be required.
 - Firmware update, DFU and Dorkmount patch installation: deliberately absent.
@@ -32,12 +34,21 @@ share a QLink session with `darkmount`.
 
 ## Installation on macOS
 
-Building requires Rust 1.85 or later and the command-line developer tools:
+Building requires Rust 1.85 or later and the command-line developer tools. To
+install the current source:
 
 ```text
-cargo build --release --locked
-target/release/darkmount --version
-target/release/darkmount info
+git clone https://github.com/ChrisJefferson/darkmount.git
+cd darkmount
+cargo install --path . --locked
+darkmount --version
+darkmount info
+```
+
+Once the first crates.io release is published, the shorter installation is:
+
+```text
+cargo install darkmount --locked
 ```
 
 No kernel extension or custom driver is installed. Ordinary control commands
@@ -183,6 +194,9 @@ into the executable.
 The unit tests and CI do not replace testing against a real keyboard. The
 bounded macOS procedure is in [`docs/macos-hardware-test.md`](docs/macos-hardware-test.md),
 including a read-only smoke script and explicit reconnect checks.
+
+The source-only release procedure is in
+[`docs/releasing.md`](docs/releasing.md).
 
 ## Provenance and licence
 
